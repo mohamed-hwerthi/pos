@@ -3,4 +3,7 @@ export interface ClientProductVariantOption {
   variantValue: string;
   variantPrice: number;
   inStock: boolean;
+  quantity: number;
+  sku?: string;
+  barcode?: string;
 }

@@ -129,14 +129,27 @@ const PaymentModal = ({
         localStorage.getItem("currentSession") || "{}"
       );
 
-      const orderItems = cartItems.map((item) => ({
-        productId: item.itemId,
-        productName: item.itemTitle,
-        unitPrice: item.itemPrice,
-        quantity: item.itemQuantity,
-        totalPrice: item.itemTotalPrice,
-        options: item.itemOptions,
-      }));
+      const orderItems = cartItems.map((item) => {
+        // Extract base product ID from composite itemId (format: productId_variantIds-optionIds)
+        const baseProductId = item.itemId.split('_')[0];
+
+        // Get variant details from selectedVariants if available
+        const firstVariant = item.selectedVariants?.[0];
+
+        return {
+          productId: baseProductId,
+          productName: item.itemTitle,
+          unitPrice: item.itemPrice,
+          quantity: item.itemQuantity,
+          totalPrice: item.itemTotalPrice,
+          options: item.itemOptions,
+          // Variant details for accurate order history
+          variantId: firstVariant?.variantId,
+          variantSku: firstVariant?.variantSku,
+          variantBarcode: firstVariant?.variantBarcode,
+          variantValue: firstVariant?.variantValue,
+        };
+      });
 
       const cashReceivedAmount = parseFloat(cashReceived);
       const changeGivenAmount = cashReceivedAmount - total;

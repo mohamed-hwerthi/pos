@@ -35,8 +35,13 @@ export const shortcuts = [
     category: "Produits",
   },
   { key: "F8", description: "Actualiser les produits", category: "Système" },
-  { key: "F9", description: "Retirer dernier article", category: "Panier" },
-  { key: "F10", description: "Retour à l'accueil", category: "Navigation" },
+  { key: "F9", description: "Mon Dashboard", category: "Actions principales" },
+  { key: "F10", description: "Clôturer et quitter", category: "Navigation" },
+  {
+    key: "F11",
+    description: "Mode Scan Rapide",
+    category: "Actions principales",
+  },
   {
     key: "F12",
     description: "Afficher/Masquer raccourcis",

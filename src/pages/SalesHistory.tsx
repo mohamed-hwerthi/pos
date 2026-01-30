@@ -11,10 +11,11 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Search, Printer, RotateCcw, Eye } from "lucide-react";
+import { ArrowLeft, Search, Printer, RotateCcw, Eye, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ClientOrder } from "@/models/client/client-order.model";
 import { clientOrderService } from "@/services/client/client-order.service";
+import { invoiceService } from "@/services/invoice.service";
 
 const SalesHistory = () => {
   const navigate = useNavigate();
@@ -151,6 +152,42 @@ Merci de votre visite !
     });
   };
 
+  const handleDownloadInvoice = async (sale: ClientOrder) => {
+    try {
+      toast({
+        title: "Génération en cours",
+        description: "La facture est en cours de génération...",
+      });
+
+      // Get store data from localStorage
+      const storeData = JSON.parse(localStorage.getItem("storeData") || "{}");
+
+      const blob = await invoiceService.generateOrderInvoice(sale.id, storeData);
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `facture-${sale.orderNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Facture générée",
+        description: `La facture ${sale.orderNumber} a été téléchargée.`,
+      });
+    } catch (error: any) {
+      console.error("Erreur lors de la génération de la facture:", error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de générer la facture. Veuillez réessayer.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto">
@@ -245,6 +282,15 @@ Merci de votre visite !
                   >
                     <Printer className="h-4 w-4 mr-2" />
                     Imprimer
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownloadInvoice(sale)}
+                    className="flex-1"
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Facture
                   </Button>
                   <Button
                     variant="outline"

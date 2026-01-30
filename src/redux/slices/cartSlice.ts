@@ -7,6 +7,15 @@ export interface CartOption {
   optionPrice?: number;
 }
 
+export interface SelectedVariantInfo {
+  variantId: string;
+  variantName: string;  // e.g., "Size", "Color"
+  variantValue: string; // e.g., "Large", "Red"
+  variantPrice: number;
+  variantSku?: string;
+  variantBarcode?: string;
+}
+
 export interface CartItem {
   itemId: string;
   itemTitle: string;
@@ -15,6 +24,7 @@ export interface CartItem {
   itemQuantity: number;
   itemOptions?: CartOption[];
   itemTotalPrice: number;
+  selectedVariants?: SelectedVariantInfo[]; // Store all selected variant details
 }
 
 interface CartState {
@@ -36,6 +46,7 @@ const cartSlice = createSlice({
         quantity?: number;
         options?: CartOption[];
         selectedVariantId?: string;
+        selectedVariants?: SelectedVariantInfo[];
       }>
     ) => {
       const {
@@ -43,16 +54,42 @@ const cartSlice = createSlice({
         quantity = 1,
         options = [],
         selectedVariantId,
+        selectedVariants = [],
       } = action.payload;
 
-      const itemId = selectedVariantId ?? product.id;
+      // Create unique itemId: combine all variant IDs + supplement IDs for uniqueness
+      let itemId: string;
+      if (selectedVariants && selectedVariants.length > 0) {
+        // Sort variant IDs for consistent key generation
+        const variantIds = selectedVariants.map(v => v.variantId).sort().join('-');
+        const optionIds = options.length > 0
+          ? '-' + options.map(o => o.optionId).sort().join('-')
+          : '';
+        itemId = `${product.id}_${variantIds}${optionIds}`;
+      } else if (selectedVariantId) {
+        // Fallback for backward compatibility
+        const optionIds = options.length > 0
+          ? '-' + options.map(o => o.optionId).sort().join('-')
+          : '';
+        itemId = `${product.id}_${selectedVariantId}${optionIds}`;
+      } else {
+        // No variants - use product ID + supplements
+        const optionIds = options.length > 0
+          ? '_' + options.map(o => o.optionId).sort().join('-')
+          : '';
+        itemId = `${product.id}${optionIds}`;
+      }
       const existingItem = state.items.find((item) => item.itemId === itemId);
 
       if (existingItem) {
         existingItem.itemQuantity += quantity;
         let basePrice = product.basePrice;
 
-        if (selectedVariantId && product.variants) {
+        // Use selectedVariants for price if available, fallback to selectedVariantId
+        if (selectedVariants && selectedVariants.length > 0) {
+          // Use the first variant's price (variant prices are typically on the first attribute)
+          basePrice = selectedVariants[0].variantPrice;
+        } else if (selectedVariantId && product.variants) {
           for (const group of product.variants) {
             const variantOption = group.options.find(
               (opt) => opt.variantId === selectedVariantId
@@ -69,8 +106,7 @@ const cartSlice = createSlice({
           0
         );
 
-        existingItem.itemPrice =
-          (basePrice + supplementsTotal) * existingItem.itemQuantity;
+        existingItem.itemPrice = basePrice;
         existingItem.itemTotalPrice =
           (basePrice + supplementsTotal) * existingItem.itemQuantity;
 
@@ -79,7 +115,11 @@ const cartSlice = createSlice({
 
       let price = product.basePrice;
 
-      if (selectedVariantId && product.variants) {
+      // Use selectedVariants for price if available, fallback to selectedVariantId
+      if (selectedVariants && selectedVariants.length > 0) {
+        // Use the first variant's price (variant prices are typically on the first attribute)
+        price = selectedVariants[0].variantPrice;
+      } else if (selectedVariantId && product.variants) {
         for (const group of product.variants) {
           const variantOption = group.options.find(
             (opt) => opt.variantId === selectedVariantId
@@ -106,6 +146,7 @@ const cartSlice = createSlice({
         itemQuantity: quantity,
         itemOptions: options,
         itemTotalPrice: totalItemPrice,
+        selectedVariants: selectedVariants.length > 0 ? selectedVariants : undefined,
       });
     },
 

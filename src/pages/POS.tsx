@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { API_UPLOADS_URL } from "@/lib/api.config";
 import { ClientProduct } from "@/models/client/client-product-detail-model";
@@ -19,6 +20,7 @@ import {
 import { setCurrency } from "@/redux/slices/storeCurrencySlice";
 import { clientProductService } from "@/services/client/client-product-service";
 import { clientStoreService } from "@/services/client/client-store-service";
+import { cashierSessionService } from "@/services/cahier-session.service";
 import {
   Clock,
   DollarSign,
@@ -31,6 +33,9 @@ import {
   X,
   Grid3x3,
   Keyboard,
+  ScanBarcode,
+  LayoutDashboard,
+  AlertTriangle,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
@@ -43,6 +48,9 @@ import {
 } from "@/components/ui/dialog";
 import { shortcuts } from "@/utils/constants/constants";
 import PaymentModal from "./Payment-modal";
+import ProductVariantModal from "@/components/ProductVariantModal";
+import QuickScanMode from "@/components/QuickScanMode";
+import CashierDashboardModal from "@/components/CashierDashboardModal";
 
 interface Product {
   id: string;
@@ -52,11 +60,16 @@ interface Product {
   inStock: boolean;
   imageUrl?: string;
   barcode?: string;
+  hasVariants: boolean;
+  clientProduct: ClientProduct; // Keep full product data for variant modal
 }
 
 const convertClientProductToProduct = (
   clientProduct: ClientProduct
 ): Product => {
+  const hasVariants = !!(clientProduct.variants && clientProduct.variants.length > 0);
+  const hasOptionGroups = !!(clientProduct.optionGroups && clientProduct.optionGroups.length > 0);
+
   return {
     id: clientProduct.id,
     name: clientProduct.title,
@@ -64,6 +77,8 @@ const convertClientProductToProduct = (
     stock: clientProduct.quantity,
     inStock: clientProduct.inStock,
     imageUrl: clientProduct.mediasUrls?.[0],
+    hasVariants: hasVariants || hasOptionGroups, // Show modal if has variants OR supplements
+    clientProduct: clientProduct, // Keep full data for modal
   };
 };
 
@@ -79,6 +94,13 @@ const POS = () => {
   const params = useParams();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showVariantModal, setShowVariantModal] = useState(false);
+  const [selectedProductForVariant, setSelectedProductForVariant] = useState<ClientProduct | null>(null);
+  const [showQuickScanMode, setShowQuickScanMode] = useState(false);
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
+  const [showClosingWarning, setShowClosingWarning] = useState(false);
+  const [actualCash, setActualCash] = useState("");
+  const [isClosing, setIsClosing] = useState(false);
 
   const subtotal = cartTotal;
   const total = subtotal;
@@ -243,16 +265,21 @@ const POS = () => {
         return;
       }
 
-      if (e.key === "F9" && cartItems.length > 0) {
+      if (e.key === "F9") {
         e.preventDefault();
-        const lastItem = cartItems[cartItems.length - 1];
-        removeFromCart(lastItem.itemId);
+        setShowDashboardModal(true);
         return;
       }
 
       if (e.key === "F10") {
         e.preventDefault();
-        navigate("/");
+        setShowClosingWarning(true);
+        return;
+      }
+
+      if (e.key === "F11") {
+        e.preventDefault();
+        setShowQuickScanMode(true);
         return;
       }
 
@@ -340,7 +367,10 @@ const POS = () => {
       return;
     }
 
-    const product = products.find((p) => p.id === id);
+    // Extract base product ID from composite itemId (format: productId_variantIds-optionIds)
+    const baseProductId = id.split('_')[0];
+    const product = products.find((p) => p.id === baseProductId || p.id === id);
+
     if (product && quantity > product.stock) {
       toast({
         title: "Stock insuffisant",
@@ -362,16 +392,14 @@ const POS = () => {
       return;
     }
 
-    const clientProduct: ClientProduct = {
-      id: product.id,
-      title: product.name,
-      description: "",
-      basePrice: product.price,
-      quantity: product.stock,
-      inStock: product.inStock,
-      mediasUrls: product.imageUrl ? [product.imageUrl] : [],
-    };
+    // If product has variants or supplements, open the variant modal
+    if (product.hasVariants) {
+      setSelectedProductForVariant(product.clientProduct);
+      setShowVariantModal(true);
+      return;
+    }
 
+    // Product without variants - add directly to cart
     const existingItem = cartItems.find((item) => item.itemId === product.id);
     if (existingItem) {
       if (existingItem.itemQuantity + 1 > product.stock) {
@@ -388,7 +416,7 @@ const POS = () => {
         })
       );
     } else {
-      dispatch(addToCartAction({ product: clientProduct, quantity: 1 }));
+      dispatch(addToCartAction({ product: product.clientProduct, quantity: 1 }));
     }
   };
 
@@ -410,6 +438,67 @@ const POS = () => {
     return `${price.toFixed(2)} ${symbol}`;
   };
 
+  // Calculate expected cash for closing
+  const expectedCash = session?.totalCash || 0;
+  const cashDifference = actualCash ? parseFloat(actualCash) - expectedCash : 0;
+
+  // Handle closing cash register and going home
+  const handleCloseRegisterAndGoHome = async () => {
+    if (!actualCash) {
+      toast({
+        title: "Erreur",
+        description: "Veuillez compter les espèces avant de clôturer",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsClosing(true);
+    try {
+      // Call the API to close the session
+      const closedSession = await cashierSessionService.closeSession(
+        session.id,
+        parseFloat(actualCash)
+      );
+
+      // Update local storage
+      const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
+      const updatedSession = {
+        ...session,
+        ...closedSession,
+        actualCash: parseFloat(actualCash),
+        cashDifference: cashDifference,
+        status: "closed",
+      };
+
+      sessions.push(updatedSession);
+      localStorage.setItem("sessions", JSON.stringify(sessions));
+      localStorage.removeItem("currentSession");
+
+      toast({
+        title: "Caisse clôturée avec succès",
+        description:
+          cashDifference === 0
+            ? "Pas d'écart de caisse"
+            : `Écart: ${cashDifference.toFixed(2)} €`,
+        variant: cashDifference === 0 ? "default" : "destructive",
+      });
+
+      setShowClosingWarning(false);
+      setActualCash("");
+      setTimeout(() => navigate("/login"), 1000);
+    } catch (error) {
+      console.error("Error closing cashier session:", error);
+      toast({
+        title: "Erreur",
+        description: "Une erreur est survenue lors de la fermeture de la caisse",
+        variant: "destructive",
+      });
+    } finally {
+      setIsClosing(false);
+    }
+  };
+
   const groupedShortcuts = shortcuts.reduce((acc, shortcut) => {
     if (!acc[shortcut.category]) {
       acc[shortcut.category] = [];
@@ -426,7 +515,7 @@ const POS = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate("/")}
+            onClick={() => setShowClosingWarning(true)}
             className="gap-1"
           >
             <Home className="w-4 h-4" />
@@ -460,6 +549,15 @@ const POS = () => {
             Clôture
           </Button>
           <Button
+            variant="default"
+            size="sm"
+            onClick={() => setShowDashboardModal(true)}
+            className="gap-1 bg-blue-600 hover:bg-blue-700"
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            Mon Dashboard (F9)
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             onClick={() => setShowShortcuts(true)}
@@ -467,6 +565,15 @@ const POS = () => {
           >
             <Keyboard className="w-4 h-4" />
             Raccourcis (F12)
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setShowQuickScanMode(true)}
+            className="gap-1 bg-green-600 hover:bg-green-700"
+          >
+            <ScanBarcode className="w-4 h-4" />
+            Scan Rapide (F11)
           </Button>
         </div>
 
@@ -529,7 +636,9 @@ const POS = () => {
                   <Card
                     key={product.id}
                     onClick={() => addToCart(product)}
-                    className="p-3 cursor-pointer hover:shadow-md transition-shadow"
+                    className={`p-3 cursor-pointer hover:shadow-md transition-shadow ${
+                      product.hasVariants ? "ring-2 ring-orange-400" : ""
+                    }`}
                   >
                     <div className="aspect-square mb-2 relative">
                       {product.imageUrl ? (
@@ -551,6 +660,12 @@ const POS = () => {
                       {product.inStock && product.stock > 0 && (
                         <Badge className="absolute top-1 right-1 bg-blue-500">
                           {product.stock}
+                        </Badge>
+                      )}
+                      {/* Variant indicator */}
+                      {product.hasVariants && (
+                        <Badge className="absolute top-1 left-1 bg-orange-500">
+                          Options
                         </Badge>
                       )}
                     </div>
@@ -596,10 +711,12 @@ const POS = () => {
             ) : (
               <div className="space-y-2">
                 {cartItems.map((item) => {
-                  const product = products.find((p) => p.id === item.itemId);
+                  // Extract base product ID from composite itemId
+                  const baseProductId = item.itemId.split('_')[0];
+                  const product = products.find((p) => p.id === baseProductId || p.id === item.itemId);
                   return (
                     <Card key={item.itemId} className="p-3">
-                      <div className="flex justify-between mb-2">
+                      <div className="flex justify-between mb-1">
                         <span className="font-medium text-sm">
                           {item.itemTitle}
                         </span>
@@ -612,6 +729,28 @@ const POS = () => {
                           <X className="w-4 h-4" />
                         </Button>
                       </div>
+                      {/* Show selected variants if any */}
+                      {item.selectedVariants && item.selectedVariants.length > 0 && (
+                        <div className="text-xs text-blue-600 mb-1">
+                          {item.selectedVariants.map((variant, idx) => (
+                            <span key={variant.variantId}>
+                              {variant.variantName}: {variant.variantValue}
+                              {idx < item.selectedVariants!.length - 1 ? " | " : ""}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {/* Show supplements/options if any */}
+                      {item.itemOptions && item.itemOptions.length > 0 && (
+                        <div className="text-xs text-gray-500 mb-2">
+                          + {item.itemOptions.map((opt, idx) => (
+                            <span key={opt.optionId}>
+                              {opt.optionName}
+                              {idx < item.itemOptions!.length - 1 ? ", " : ""}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Button
@@ -648,7 +787,7 @@ const POS = () => {
                           </Button>
                         </div>
                         <span className="font-bold">
-                          {formatPrice(item.itemPrice * item.itemQuantity)}
+                          {formatPrice(item.itemTotalPrice)}
                         </span>
                       </div>
                     </Card>
@@ -682,6 +821,39 @@ const POS = () => {
           cartItems={cartItems}
           total={total}
           subtotal={subtotal}
+        />
+      )}
+
+      {/* Product Variant Modal */}
+      <ProductVariantModal
+        product={selectedProductForVariant}
+        isOpen={showVariantModal}
+        onClose={() => {
+          setShowVariantModal(false);
+          setSelectedProductForVariant(null);
+        }}
+        onAddToCart={() => {
+          toast({
+            title: "Produit ajouté",
+            description: "Le produit a été ajouté au panier",
+          });
+        }}
+      />
+
+      {/* Quick Scan Mode */}
+      <QuickScanMode
+        isOpen={showQuickScanMode}
+        onClose={() => setShowQuickScanMode(false)}
+        currencySymbol={currencySymbol}
+      />
+
+      {/* Cashier Dashboard Modal */}
+      {cashier && (
+        <CashierDashboardModal
+          isOpen={showDashboardModal}
+          onClose={() => setShowDashboardModal(false)}
+          cashierId={cashier.id}
+          currencySymbol={currencySymbol}
         />
       )}
 
@@ -722,6 +894,149 @@ const POS = () => {
 
           <div className="pt-4 border-t text-sm text-gray-500 text-center">
             Appuyez sur F12 ou ESC pour fermer cette fenêtre
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Avertissement Clôture */}
+      <Dialog open={showClosingWarning} onOpenChange={(open) => {
+        if (!isClosing) {
+          setShowClosingWarning(open);
+          if (!open) setActualCash("");
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl text-orange-600">
+              <AlertTriangle className="w-6 h-6" />
+              Attention - Clôture de caisse requise
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <p className="text-orange-800">
+                Pour retourner à l'accueil, vous devez d'abord clôturer votre session de caisse.
+                Les données de clôture seront enregistrées.
+              </p>
+            </div>
+
+            {/* Résumé de la session */}
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3">Résumé de la session</h3>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Caissier:</span>
+                    <span className="font-medium">{session?.cashier || `${cashier?.firstName} ${cashier?.lastName}`}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Ouverture:</span>
+                    <span className="font-medium">
+                      {session?.openedAt ? new Date(session.openedAt).toLocaleTimeString("fr-FR") : "-"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Fond initial:</span>
+                    <span className="font-medium">{(session?.initialAmount || 0).toFixed(2)} €</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Nombre de ventes:</span>
+                    <span className="font-medium">{session?.sales?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total ventes:</span>
+                    <span className="font-medium text-green-600">{(session?.totalSales || 0).toFixed(2)} €</span>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Encaissements */}
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3">Encaissements</h3>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Espèces:</span>
+                  <span className="font-medium">{(session?.totalCash || 0).toFixed(2)} €</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Carte bancaire:</span>
+                  <span className="font-medium">{(session?.totalCard || 0).toFixed(2)} €</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Chèque:</span>
+                  <span className="font-medium">{(session?.totalCheck || 0).toFixed(2)} €</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Virement:</span>
+                  <span className="font-medium">{(session?.totalTransfer || 0).toFixed(2)} €</span>
+                </div>
+              </div>
+            </Card>
+
+            {/* Comptage des espèces */}
+            <Card className="p-4 border-2 border-blue-200 bg-blue-50">
+              <h3 className="font-semibold mb-3">Comptage des espèces</h3>
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="actualCashClosing">Montant total compté en espèces (€) *</Label>
+                  <Input
+                    id="actualCashClosing"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={actualCash}
+                    onChange={(e) => setActualCash(e.target.value)}
+                    className="mt-1 text-lg bg-white"
+                    autoFocus
+                  />
+                </div>
+
+                {actualCash && (
+                  <div className="bg-white rounded p-3 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Espèces attendues:</span>
+                      <span className="font-semibold">{expectedCash.toFixed(2)} €</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Espèces comptées:</span>
+                      <span className="font-semibold">{parseFloat(actualCash).toFixed(2)} €</span>
+                    </div>
+                    <div className="border-t pt-2 flex justify-between font-bold">
+                      <span>Écart:</span>
+                      <span className={cashDifference === 0 ? "text-green-600" : "text-red-600"}>
+                        {cashDifference > 0 ? "+" : ""}{cashDifference.toFixed(2)} €
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Boutons */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowClosingWarning(false);
+                  setActualCash("");
+                }}
+                disabled={isClosing}
+              >
+                Annuler
+              </Button>
+              <Button
+                className="flex-1 bg-orange-600 hover:bg-orange-700"
+                onClick={handleCloseRegisterAndGoHome}
+                disabled={!actualCash || isClosing}
+              >
+                {isClosing ? "Clôture en cours..." : "Clôturer et quitter"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -43,4 +43,14 @@ export const clientProductService = {
     );
     return data;
   },
+
+  /**
+   * Get product by barcode for POS scanning.
+   * @param barcode - Product barcode or QR code
+   * @returns ClientProduct with scannedVariantId if it's a variant
+   */
+  async getByBarcode(barcode: string): Promise<ClientProduct> {
+    const { data } = await apiClient.get(`/client/products/barcode/${barcode}`);
+    return data;
+  },
 };
