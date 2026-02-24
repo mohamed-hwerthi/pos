@@ -7,14 +7,16 @@ import {
   Award,
   CheckCircle,
   AlertTriangle,
+  Cloud,
   Download,
   Loader2,
   ShieldCheck,
 } from "lucide-react";
-import { NF525Attestation as NF525AttestationType } from "@/models/nf525.model";
+import { NF525Attestation as NF525AttestationType, NF525BackendAttestationDTO } from "@/models/nf525.model";
 import { nf525IntegrityService } from "@/services/nf525-integrity.service";
 import { nf525ArchiveService } from "@/services/nf525-archive.service";
 import { nf525EventJournalService } from "@/services/nf525-event-journal.service";
+import { nf525SyncService } from "@/services/nf525-sync.service";
 import { sha256 } from "@/utils/nf525-hash";
 
 const COMPLIANCE_FEATURES = [
@@ -35,6 +37,8 @@ const NF525Attestation = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [chainValid, setChainValid] = useState<boolean | null>(null);
   const [journalValid, setJournalValid] = useState<boolean | null>(null);
+  const [serverAttestation, setServerAttestation] = useState<NF525BackendAttestationDTO | null>(null);
+  const [isGeneratingServer, setIsGeneratingServer] = useState(false);
 
   useEffect(() => {
     const generate = async () => {
@@ -125,6 +129,36 @@ const NF525Attestation = () => {
 
     generate();
   }, []);
+
+  const handleGenerateServerAttestation = async () => {
+    setIsGeneratingServer(true);
+    try {
+      // Sync first, then generate on server
+      await nf525SyncService.syncAll();
+      const result = await nf525SyncService.generateServerAttestation();
+      setServerAttestation(result);
+    } catch (error: any) {
+      console.error("NF525: erreur attestation serveur", error);
+    } finally {
+      setIsGeneratingServer(false);
+    }
+  };
+
+  const handleDownloadServerAttestation = async () => {
+    if (!serverAttestation?.id) return;
+    try {
+      const content = await nf525SyncService.downloadServerAttestation(serverAttestation.id);
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `attestation-nf525-serveur-${new Date().toISOString().split("T")[0]}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("NF525: erreur téléchargement attestation serveur", error);
+    }
+  };
 
   const handleDownload = () => {
     if (!attestation) return;
@@ -351,11 +385,91 @@ SHA-256 : ${attestation.attestationDigest.toUpperCase()}
           </p>
         </Card>
 
-        {/* Download */}
-        <Button size="lg" className="w-full" onClick={handleDownload}>
+        {/* Download local */}
+        <Button size="lg" className="w-full mb-4" onClick={handleDownload}>
           <Download className="h-4 w-4 mr-2" />
-          Télécharger l'attestation
+          Télécharger l'attestation (locale)
         </Button>
+
+        {/* Server Attestation */}
+        <Card className="p-5 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Cloud className="h-5 w-5 text-blue-600" />
+              <h2 className="text-lg font-semibold">Attestation serveur</h2>
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleGenerateServerAttestation}
+              disabled={isGeneratingServer}
+            >
+              {isGeneratingServer ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Cloud className="h-4 w-4 mr-2" />
+              )}
+              {isGeneratingServer ? "Génération..." : "Générer sur le serveur"}
+            </Button>
+          </div>
+
+          {serverAttestation ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Chaîne :</span>
+                  {serverAttestation.chainValid ? (
+                    <span className="flex items-center gap-1 text-green-700 font-semibold">
+                      <CheckCircle className="h-4 w-4" /> INTÈGRE
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-red-700 font-semibold">
+                      <AlertTriangle className="h-4 w-4" /> COMPROMISE
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Journal :</span>
+                  {serverAttestation.journalValid ? (
+                    <span className="flex items-center gap-1 text-green-700 font-semibold">
+                      <CheckCircle className="h-4 w-4" /> INTÈGRE
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-red-700 font-semibold">
+                      <AlertTriangle className="h-4 w-4" /> COMPROMIS
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Tickets :</span>{" "}
+                  <span className="font-semibold">{serverAttestation.orderCount}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Clôtures :</span>{" "}
+                  <span className="font-semibold">{serverAttestation.closingsCount}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Événements :</span>{" "}
+                  <span className="font-semibold">{serverAttestation.eventCount}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Grand total :</span>{" "}
+                  <span className="font-semibold">{serverAttestation.grandTotal} €</span>
+                </div>
+              </div>
+              <div className="font-mono text-xs break-all bg-muted p-3 rounded">
+                SHA-256 : {serverAttestation.attestationDigest.toUpperCase()}
+              </div>
+              <Button className="w-full" onClick={handleDownloadServerAttestation}>
+                <Download className="h-4 w-4 mr-2" />
+                Télécharger attestation serveur
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Cliquez sur "Générer sur le serveur" pour produire une attestation vérifiable côté backend.
+            </p>
+          )}
+        </Card>
       </div>
     </div>
   );

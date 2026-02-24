@@ -17,6 +17,7 @@ import {
   BookOpen,
   Wrench,
   Award,
+  Cloud,
 } from "lucide-react";
 import { NF525PeriodicClosing, NF525PeriodicClosingType } from "@/models/nf525.model";
 import { nf525ArchiveService } from "@/services/nf525-archive.service";
@@ -52,6 +53,12 @@ const NF525Archive = () => {
   const [interventionActive, setInterventionActive] = useState(
     nf525EventJournalService.isInterventionMode()
   );
+  const [isVerifyingServer, setIsVerifyingServer] = useState(false);
+  const [serverVerificationResult, setServerVerificationResult] = useState<{
+    chain: { valid: boolean; checkedCount: number; errors: string[] } | null;
+    closings: { valid: boolean; checkedCount: number; errors: string[] } | null;
+    journal: { valid: boolean; checkedCount: number; errors: string[] } | null;
+  } | null>(null);
 
   const loadClosings = useCallback(() => {
     if (activeTab !== "journal") {
@@ -102,6 +109,28 @@ const NF525Archive = () => {
       });
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  const handleVerifyServer = async () => {
+    setIsVerifyingServer(true);
+    try {
+      // Sync first, then verify on server
+      await nf525SyncService.syncAll();
+      const [chain, closings, journal] = await Promise.all([
+        nf525SyncService.verifyChainOnServer(),
+        nf525SyncService.verifyClosingsOnServer(),
+        nf525SyncService.verifyJournalOnServer(),
+      ]);
+      setServerVerificationResult({ chain, closings, journal });
+    } catch (e: any) {
+      setServerVerificationResult({
+        chain: { valid: false, checkedCount: 0, errors: [e.message || "Erreur serveur"] },
+        closings: null,
+        journal: null,
+      });
+    } finally {
+      setIsVerifyingServer(false);
     }
   };
 
@@ -304,7 +333,15 @@ const NF525Archive = () => {
               ) : (
                 <ShieldCheck className="h-4 w-4 mr-2" />
               )}
-              Vérifier intégrité archives
+              Vérifier (local)
+            </Button>
+            <Button variant="outline" onClick={handleVerifyServer} disabled={isVerifyingServer}>
+              {isVerifyingServer ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Cloud className="h-4 w-4 mr-2" />
+              )}
+              Vérifier (serveur)
             </Button>
             <Button
               variant="outline"
@@ -357,6 +394,46 @@ const NF525Archive = () => {
                   </ul>
                 )}
               </div>
+            </div>
+          </Card>
+        )}
+        {/* Server Verification Result */}
+        {serverVerificationResult && (
+          <Card className="p-4 mt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Cloud className="h-5 w-5 text-blue-600" />
+              <h3 className="font-semibold">Vérification serveur</h3>
+            </div>
+            <div className="space-y-2">
+              {(["chain", "closings", "journal"] as const).map((key) => {
+                const v = serverVerificationResult[key];
+                if (!v) return null;
+                const labels = { chain: "Chaîne", closings: "Clôtures", journal: "Journal" };
+                return (
+                  <div key={key}>
+                    <div className="flex items-center gap-2 text-sm">
+                      {v.valid ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      )}
+                      <span className="font-medium">
+                        {labels[key]}: {v.valid ? "intègre" : "erreurs détectées"}
+                      </span>
+                      <span className="text-muted-foreground text-xs">
+                        ({v.checkedCount} vérifiés)
+                      </span>
+                    </div>
+                    {!v.valid && v.errors.length > 0 && (
+                      <ul className="ml-6 mt-1 text-xs text-red-600 list-disc list-inside">
+                        {v.errors.map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </Card>
         )}

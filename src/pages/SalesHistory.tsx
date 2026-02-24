@@ -11,14 +11,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Search, Printer, RotateCcw, Eye, FileText, ShieldCheck, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Search, Printer, RotateCcw, Eye, FileText, ShieldCheck, AlertTriangle, Cloud, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ClientOrder } from "@/models/client/client-order.model";
 import { ClientStore } from "@/models/client/client-store-model";
-import { NF525VerificationResult } from "@/models/nf525.model";
+import { NF525VerificationResult, NF525BackendVerificationResult } from "@/models/nf525.model";
 import { clientOrderService } from "@/services/client/client-order.service";
 import { nf525IntegrityService } from "@/services/nf525-integrity.service";
 import { nf525EventJournalService } from "@/services/nf525-event-journal.service";
+import { nf525SyncService } from "@/services/nf525-sync.service";
 import { invoiceService } from "@/services/invoice.service";
 import { buildNF525Receipt } from "@/utils/receipt-builder";
 
@@ -33,6 +34,8 @@ const SalesHistory = () => {
   const [showTicket, setShowTicket] = useState(false);
   const [verificationResult, setVerificationResult] = useState<NF525VerificationResult | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [serverVerificationResult, setServerVerificationResult] = useState<NF525BackendVerificationResult | null>(null);
+  const [isVerifyingServer, setIsVerifyingServer] = useState(false);
 
   const session = JSON.parse(localStorage.getItem("currentSession") || "{}");
   const sessionId = session?.id;
@@ -99,6 +102,25 @@ const SalesHistory = () => {
       });
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  const handleVerifyChainOnServer = async () => {
+    setIsVerifyingServer(true);
+    try {
+      // Sync first, then verify on server
+      await nf525SyncService.syncAll();
+      const result = await nf525SyncService.verifyChainOnServer();
+      setServerVerificationResult(result);
+    } catch (error: any) {
+      console.error("Erreur vérification serveur:", error);
+      setServerVerificationResult({
+        valid: false,
+        checkedCount: 0,
+        errors: [error.response?.data?.message || error.message || "Impossible de vérifier sur le serveur"],
+      });
+    } finally {
+      setIsVerifyingServer(false);
     }
   };
 
@@ -235,7 +257,19 @@ const SalesHistory = () => {
             disabled={isVerifying || sales.length === 0}
           >
             <ShieldCheck className="h-4 w-4 mr-2" />
-            {isVerifying ? "Vérification..." : "Vérifier la chaîne"}
+            {isVerifying ? "Vérification..." : "Vérifier (local)"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleVerifyChainOnServer}
+            disabled={isVerifyingServer || sales.length === 0}
+          >
+            {isVerifyingServer ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Cloud className="h-4 w-4 mr-2" />
+            )}
+            {isVerifyingServer ? "Vérification..." : "Vérifier (serveur)"}
           </Button>
         </div>
 
@@ -266,6 +300,36 @@ const SalesHistory = () => {
                   <li key={i}>
                     Ticket #{err.orderNumber || err.sequentialNumber} : {err.message}
                   </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {serverVerificationResult && (
+          <div
+            className={`mb-6 p-4 rounded-lg border ${
+              serverVerificationResult.valid
+                ? "bg-blue-50 border-blue-200 text-blue-800"
+                : "bg-red-50 border-red-200 text-red-800"
+            }`}
+          >
+            <div className="flex items-center gap-2 font-semibold mb-1">
+              <Cloud className="h-5 w-5" />
+              {serverVerificationResult.valid ? (
+                <>
+                  Serveur : Chaîne intègre — {serverVerificationResult.checkedCount} ticket(s) vérifiés
+                </>
+              ) : (
+                <>
+                  Serveur : Chaîne compromise — {serverVerificationResult.errors.length} erreur(s)
+                </>
+              )}
+            </div>
+            {!serverVerificationResult.valid && serverVerificationResult.errors.length > 0 && (
+              <ul className="mt-2 text-sm space-y-1">
+                {serverVerificationResult.errors.map((err, i) => (
+                  <li key={i}>{err}</li>
                 ))}
               </ul>
             )}
