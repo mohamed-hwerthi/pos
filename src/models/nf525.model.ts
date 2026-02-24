@@ -7,6 +7,7 @@ export interface NF525OrderIntegrity {
   orderId: string;
   orderNumber: string;
   shortHash: string;
+  hashPayload?: string; // Phase 9: serialized payload for server-side hash recomputation
 }
 
 export interface NF525HashPayload {

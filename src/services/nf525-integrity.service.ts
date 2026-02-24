@@ -10,6 +10,7 @@ import {
   shortHash,
   verifyHashChain,
   sha256,
+  serializePayload,
   GENESIS_HASH,
 } from "@/utils/nf525-hash";
 
@@ -61,7 +62,7 @@ export const nf525IntegrityService = {
     const previousGrandTotal = this.getGrandTotal();
     const grandTotal = Math.round((previousGrandTotal + (order.total ?? 0)) * 100) / 100;
 
-    const { hash } = await computeOrderHash(order, sequentialNumber, grandTotal, previousHash);
+    const { hash, payload } = await computeOrderHash(order, sequentialNumber, grandTotal, previousHash);
 
     const integrity: NF525OrderIntegrity = {
       sequentialNumber,
@@ -72,6 +73,7 @@ export const nf525IntegrityService = {
       orderId: order.id || "",
       orderNumber: order.orderNumber || "",
       shortHash: shortHash(hash),
+      hashPayload: serializePayload(payload),
     };
 
     // Persist to localStorage

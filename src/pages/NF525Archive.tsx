@@ -60,6 +60,19 @@ const NF525Archive = () => {
     journal: { valid: boolean; checkedCount: number; errors: string[] } | null;
   } | null>(null);
 
+  // Auth guard
+  useEffect(() => {
+    const storedCashier = localStorage.getItem("cashier");
+    if (!storedCashier) {
+      navigate("/login");
+      return;
+    }
+    const currentSession = localStorage.getItem("currentSession");
+    if (!currentSession) {
+      navigate("/cash-register-opening");
+    }
+  }, [navigate]);
+
   const loadClosings = useCallback(() => {
     if (activeTab !== "journal") {
       setClosings(nf525ArchiveService.getClosingsByType(activeTab));

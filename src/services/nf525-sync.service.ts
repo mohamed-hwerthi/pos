@@ -50,6 +50,7 @@ function mapChainEntryToDTO(entry: NF525OrderIntegrity) {
     grandTotal: entry.grandTotal,
     timestamp: entry.timestamp,
     shortHash: entry.shortHash,
+    hashPayload: entry.hashPayload || null,
   };
 }
 

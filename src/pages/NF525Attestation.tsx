@@ -40,6 +40,19 @@ const NF525Attestation = () => {
   const [serverAttestation, setServerAttestation] = useState<NF525BackendAttestationDTO | null>(null);
   const [isGeneratingServer, setIsGeneratingServer] = useState(false);
 
+  // Auth guard
+  useEffect(() => {
+    const storedCashier = localStorage.getItem("cashier");
+    if (!storedCashier) {
+      navigate("/login");
+      return;
+    }
+    const currentSession = localStorage.getItem("currentSession");
+    if (!currentSession) {
+      navigate("/cash-register-opening");
+    }
+  }, [navigate]);
+
   useEffect(() => {
     const generate = async () => {
       setIsLoading(true);
