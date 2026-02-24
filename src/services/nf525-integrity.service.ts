@@ -74,6 +74,7 @@ export const nf525IntegrityService = {
       orderNumber: order.orderNumber || "",
       shortHash: shortHash(hash),
       hashPayload: serializePayload(payload),
+      paymentMethod: order.paymentMethod || "CASH",
     };
 
     // Persist to localStorage

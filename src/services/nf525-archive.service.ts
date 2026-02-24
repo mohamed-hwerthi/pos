@@ -243,7 +243,7 @@ export const nf525ArchiveService = {
         ttc.toFixed(2).replace(".", ","),
         ht.toFixed(2).replace(".", ","),
         vat.toFixed(2).replace(".", ","),
-        "CASH", // Default — payment method not stored in chain
+        entry.paymentMethod || "CASH",
         entry.hash,
         entry.previousHash,
         entry.grandTotal.toFixed(2).replace(".", ","),

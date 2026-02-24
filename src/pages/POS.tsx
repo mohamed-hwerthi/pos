@@ -23,6 +23,9 @@ import { setCurrency } from "@/redux/slices/storeCurrencySlice";
 import { clientProductService } from "@/services/client/client-product-service";
 import { clientStoreService } from "@/services/client/client-store-service";
 import { cashierSessionService } from "@/services/cahier-session.service";
+import { nf525IntegrityService } from "@/services/nf525-integrity.service";
+import { nf525ArchiveService } from "@/services/nf525-archive.service";
+import { nf525EventJournalService } from "@/services/nf525-event-journal.service";
 import {
   Clock,
   DollarSign,
@@ -478,6 +481,44 @@ const POS = () => {
 
       sessions.push(updatedSession);
       localStorage.setItem("sessions", JSON.stringify(sessions));
+
+      // NF525: compute and archive session integrity before clearing session
+      try {
+        const orderIds = (session.sales || [])
+          .map((s: any) => s.orderId)
+          .filter(Boolean);
+        const sessionIntegrity = await nf525IntegrityService.generateSessionClosing(
+          session.id,
+          session.sessionNumber || session.id,
+          orderIds
+        );
+        nf525IntegrityService.archiveSessionClosing(sessionIntegrity);
+
+        // NF525: log SESSION_CLOSED event
+        await nf525EventJournalService.logSessionClosed({
+          sessionId: session.id,
+          sessionNumber: session.sessionNumber || session.id,
+          totalSales: session.totalSales || 0,
+          actualCash: parseFloat(actualCash),
+          cashDifference: cashDifference,
+          sessionDigest: sessionIntegrity.sessionDigest,
+        });
+      } catch (e) { console.warn('NF525: session closing from POS', e); }
+
+      // NF525: auto-trigger daily closing
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        if (!nf525ArchiveService.hasClosingForPeriod("daily", today)) {
+          await nf525ArchiveService.generateDailyClosing(today);
+        }
+      } catch (e) { console.warn('NF525: daily closing from POS', e); }
+
+      // NF525: sync all data to backend before clearing session
+      try {
+        const { nf525SyncService } = await import("@/services/nf525-sync.service");
+        await nf525SyncService.syncAll();
+      } catch (e) { console.warn('NF525: sync at POS close', e); }
+
       localStorage.removeItem("currentSession");
 
       toast({
