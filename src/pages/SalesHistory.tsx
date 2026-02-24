@@ -11,11 +11,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Search, Printer, RotateCcw, Eye, FileText } from "lucide-react";
+import { ArrowLeft, Search, Printer, RotateCcw, Eye, FileText, ShieldCheck, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ClientOrder } from "@/models/client/client-order.model";
+import { ClientStore } from "@/models/client/client-store-model";
+import { NF525VerificationResult } from "@/models/nf525.model";
 import { clientOrderService } from "@/services/client/client-order.service";
+import { nf525IntegrityService } from "@/services/nf525-integrity.service";
+import { nf525EventJournalService } from "@/services/nf525-event-journal.service";
 import { invoiceService } from "@/services/invoice.service";
+import { buildNF525Receipt } from "@/utils/receipt-builder";
 
 const SalesHistory = () => {
   const navigate = useNavigate();
@@ -26,9 +31,12 @@ const SalesHistory = () => {
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState<ClientOrder | null>(null);
   const [showTicket, setShowTicket] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<NF525VerificationResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const session = JSON.parse(localStorage.getItem("currentSession") || "{}");
   const sessionId = session?.id;
+  const storeData: Partial<ClientStore> = JSON.parse(localStorage.getItem("storeData") || "{}");
 
   useEffect(() => {
     const fetchSales = async () => {
@@ -68,38 +76,43 @@ const SalesHistory = () => {
     sale.orderNumber?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const buildTicket = (sale: ClientOrder): string => `
-================================
-       TICKET DE CAISSE
-================================
+  const handleVerifyChain = async () => {
+    setIsVerifying(true);
+    try {
+      const result = await nf525IntegrityService.verifyFullChain(sales);
+      setVerificationResult(result);
 
-N° ${sale.orderNumber}
-${new Date(sale.createdAt || "").toLocaleString("fr-FR")}
-Caissier: ${session.cashier || "N/A"}
+      // NF525 Phase 4 : journal CHAIN_VERIFIED
+      try {
+        await nf525EventJournalService.logChainVerified({
+          valid: result.valid,
+          checkedCount: result.checkedCount,
+          errorCount: result.errors.length,
+        });
+      } catch (e) { console.warn('NF525: journal CHAIN_VERIFIED', e); }
+    } catch (error) {
+      console.error("Erreur vérification chaîne NF525:", error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de vérifier la chaîne d'intégrité.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
---------------------------------
-ARTICLES
---------------------------------
-${sale.orderItems
-  .map(
-    (item) =>
-      `${item.productName}\n${item.quantity} x ${item.unitPrice.toFixed(
-        2
-      )} € = ${(item.quantity * item.unitPrice).toFixed(2)} €`
-  )
-  .join("\n\n")}
-
---------------------------------
-TOTAL
---------------------------------
-Sous-total: ${sale.subTotal?.toFixed(2)} €
-TOTAL: ${sale.total?.toFixed(2)} €
-
-Paiement: Espèces
-
-Merci de votre visite !
-================================
-  `;
+  const buildTicket = (sale: ClientOrder): string => {
+    const integrity = sale.id ? nf525IntegrityService.getByOrderId(sale.id) : undefined;
+    const integrityInfo = integrity
+      ? {
+          sequentialNumber: integrity.sequentialNumber,
+          shortHash: integrity.shortHash,
+          grandTotal: integrity.grandTotal,
+        }
+      : undefined;
+    return buildNF525Receipt(sale, storeData, { cashier: session.cashier }, integrityInfo);
+  };
 
   const handlePrint = (sale: ClientOrder) => {
     const ticket = buildTicket(sale);
@@ -206,8 +219,8 @@ Merci de votre visite !
           </p>
         </div>
 
-        <div className="mb-6">
-          <div className="relative">
+        <div className="mb-6 flex gap-3">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Rechercher par numéro de ticket..."
@@ -216,7 +229,48 @@ Merci de votre visite !
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+          <Button
+            variant="outline"
+            onClick={handleVerifyChain}
+            disabled={isVerifying || sales.length === 0}
+          >
+            <ShieldCheck className="h-4 w-4 mr-2" />
+            {isVerifying ? "Vérification..." : "Vérifier la chaîne"}
+          </Button>
         </div>
+
+        {verificationResult && (
+          <div
+            className={`mb-6 p-4 rounded-lg border ${
+              verificationResult.valid
+                ? "bg-green-50 border-green-200 text-green-800"
+                : "bg-red-50 border-red-200 text-red-800"
+            }`}
+          >
+            <div className="flex items-center gap-2 font-semibold mb-1">
+              {verificationResult.valid ? (
+                <>
+                  <ShieldCheck className="h-5 w-5" />
+                  Chaîne intègre — {verificationResult.checkedCount} ticket(s) vérifiés
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-5 w-5" />
+                  Chaîne compromise — {verificationResult.errors.length} erreur(s) détectée(s)
+                </>
+              )}
+            </div>
+            {!verificationResult.valid && (
+              <ul className="mt-2 text-sm space-y-1">
+                {verificationResult.errors.map((err, i) => (
+                  <li key={i}>
+                    Ticket #{err.orderNumber || err.sequentialNumber} : {err.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {loading ? (
           <Card className="p-8 text-center">
@@ -246,6 +300,14 @@ Merci de votre visite !
                     <Badge className="bg-success text-white">
                       {sale.total?.toFixed(2)} €
                     </Badge>
+                    {(() => {
+                      const integrity = sale.id ? nf525IntegrityService.getByOrderId(sale.id) : undefined;
+                      return integrity ? (
+                        <Badge variant="outline" className="font-mono text-xs">
+                          #{integrity.sequentialNumber} | {integrity.shortHash}
+                        </Badge>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 

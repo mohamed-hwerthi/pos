@@ -28,7 +28,8 @@ export const clientOrderService = {
     >,
     cashierSessionId: string,
     cashReceived?: number,
-    changeGiven?: number
+    changeGiven?: number,
+    paymentMethod?: string
   ): Promise<ClientOrder> {
     const posOrder: ClientOrder = {
       ...order,
@@ -36,6 +37,7 @@ export const clientOrderService = {
       cashierSessionId,
       cashReceived,
       changeGiven,
+      paymentMethod,
     };
     const { data } = await apiClient.post("/client/orders", posOrder);
     return data;

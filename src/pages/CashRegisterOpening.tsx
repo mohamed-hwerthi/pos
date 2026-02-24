@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, DollarSign } from "lucide-react";
 import { cashierSessionService } from "@/services/cahier-session.service";
 import { userService } from "@/services/user.service";
+import { nf525EventJournalService } from "@/services/nf525-event-journal.service";
 import { UserDTO } from "@/models/user.model";
 
 const CashRegisterOpening = () => {
@@ -106,6 +107,15 @@ const CashRegisterOpening = () => {
 
       localStorage.setItem("currentSession", JSON.stringify(session));
       localStorage.setItem("cashier", JSON.stringify(currentUser));
+
+      // NF525 Phase 4 : journal SESSION_OPENED
+      try {
+        await nf525EventJournalService.logSessionOpened({
+          sessionId: sessionResponse.id,
+          sessionNumber: sessionResponse.sessionNumber || "",
+          initialAmount: parseFloat(initialAmount),
+        });
+      } catch (e) { console.warn('NF525: journal SESSION_OPENED', e); }
 
       toast({
         title: "Caisse ouverte",

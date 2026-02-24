@@ -25,6 +25,7 @@ export interface CartItem {
   itemOptions?: CartOption[];
   itemTotalPrice: number;
   selectedVariants?: SelectedVariantInfo[]; // Store all selected variant details
+  vatRate: number;
 }
 
 interface CartState {
@@ -147,6 +148,7 @@ const cartSlice = createSlice({
         itemOptions: options,
         itemTotalPrice: totalItemPrice,
         selectedVariants: selectedVariants.length > 0 ? selectedVariants : undefined,
+        vatRate: product.vatRate ?? 20,
       });
     },
 

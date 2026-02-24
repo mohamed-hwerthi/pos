@@ -15,4 +15,7 @@ export interface ClientStore {
   currencySymbol: string;
   countryName: string;
   city: string;
+  siret?: string;
+  vatNumber?: string;
+  legalName?: string;
 }

@@ -13,6 +13,8 @@ import SalesHistory from "./pages/SalesHistory";
 import CashRegisterClosing from "./pages/CashRegisterClosing";
 import NotFound from "./pages/NotFound";
 import Tables from "./pages/table";
+import NF525Archive from "./pages/NF525Archive";
+import NF525Attestation from "./pages/NF525Attestation";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +40,8 @@ const App = () => {
                 path="/cash-register-closing"
                 element={<CashRegisterClosing />}
               />
+              <Route path="/nf525-archive" element={<NF525Archive />} />
+              <Route path="/nf525-attestation" element={<NF525Attestation />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

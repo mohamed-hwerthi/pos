@@ -8,4 +8,8 @@ export interface ClientOrderItem {
   mediasUrls?: string[];
   options?: ClientOrderItemOption[];
   totalPrice: number;
+  vatRate?: number;
+  unitPriceExclTax?: number;
+  totalPriceExclTax?: number;
+  vatAmount?: number;
 }

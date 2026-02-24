@@ -11,6 +11,8 @@ import { UserDTO } from "@/models/user.model";
 import {
   selectCartItems,
   selectCartTotal,
+  selectCartTotalExclTax,
+  selectCartVatTotal,
 } from "@/redux/selectors/cart-selector";
 import {
   addToCart as addToCartAction,
@@ -36,6 +38,7 @@ import {
   ScanBarcode,
   LayoutDashboard,
   AlertTriangle,
+  Archive,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
@@ -88,6 +91,8 @@ const POS = () => {
   const dispatch = useDispatch();
   const cartItems = useSelector(selectCartItems);
   const cartTotal = useSelector(selectCartTotal);
+  const cartTotalExclTax = useSelector(selectCartTotalExclTax);
+  const cartVatTotal = useSelector(selectCartVatTotal);
   const currencySymbol = useSelector(
     (state: any) => state.storeCurrency.currencySymbol
   );
@@ -549,6 +554,15 @@ const POS = () => {
             Clôture
           </Button>
           <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/nf525-archive")}
+            className="gap-1"
+          >
+            <Archive className="w-4 h-4" />
+            Archives
+          </Button>
+          <Button
             variant="default"
             size="sm"
             onClick={() => setShowDashboardModal(true)}
@@ -799,8 +813,16 @@ const POS = () => {
 
           {/* Résumé et paiement */}
           <div className="border-t p-4 space-y-3">
+            <div className="flex justify-between text-sm text-gray-500">
+              <span>Total HT:</span>
+              <span>{formatPrice(cartTotalExclTax)}</span>
+            </div>
+            <div className="flex justify-between text-sm text-gray-500">
+              <span>TVA:</span>
+              <span>{formatPrice(cartVatTotal)}</span>
+            </div>
             <div className="flex justify-between text-xl font-bold">
-              <span>TOTAL:</span>
+              <span>TOTAL TTC:</span>
               <span>{formatPrice(total)}</span>
             </div>
 

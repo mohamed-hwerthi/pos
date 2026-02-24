@@ -16,6 +16,7 @@ export interface ClientProduct {
   categoryName?: string;
   variants?: ClientProductVariants[];
   optionGroups?: ClientProductOptionGroup[];
+  vatRate?: number;
   // Populated when product is found via barcode scan (for variants)
   scannedVariantId?: string;
   scannedVariantBarcode?: string;
