@@ -100,6 +100,12 @@ const CashRegisterClosing = () => {
         console.warn("NF525: Clôture journalière non générée", error);
       }
 
+      // NF525 Phase 6 : sync all data to backend before closing session
+      try {
+        const { nf525SyncService } = await import("@/services/nf525-sync.service");
+        await nf525SyncService.syncAll();
+      } catch (e) { console.warn('NF525: sync at session close', e); }
+
       localStorage.removeItem("currentSession");
 
       toast({

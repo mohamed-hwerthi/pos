@@ -21,7 +21,9 @@ import {
 import { NF525PeriodicClosing, NF525PeriodicClosingType } from "@/models/nf525.model";
 import { nf525ArchiveService } from "@/services/nf525-archive.service";
 import { nf525EventJournalService } from "@/services/nf525-event-journal.service";
+import { nf525SyncService } from "@/services/nf525-sync.service";
 import NF525EventJournal from "@/components/NF525EventJournal";
+import NF525SyncStatus from "@/components/NF525SyncStatus";
 import TechnicalInterventionModal from "@/components/TechnicalInterventionModal";
 
 const TYPE_LABELS: Record<NF525PeriodicClosingType, string> = {
@@ -78,6 +80,8 @@ const NF525Archive = () => {
           break;
       }
       loadClosings();
+      // Background sync to backend
+      nf525SyncService.syncAll().catch(() => {});
     } catch (error: any) {
       alert(error.message || "Erreur lors de la génération de la clôture");
     } finally {
@@ -189,6 +193,11 @@ const NF525Archive = () => {
             </div>
           </div>
         </Card>
+
+        {/* Sync Status */}
+        <div className="mb-6">
+          <NF525SyncStatus />
+        </div>
 
         {/* Tabs */}
         <Tabs

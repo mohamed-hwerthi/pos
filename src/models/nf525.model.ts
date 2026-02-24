@@ -158,3 +158,54 @@ export interface NF525Attestation {
   };
   attestationDigest: string;
 }
+
+// ── Phase 6: Sync with backend ──────────────────────
+
+export interface NF525SyncResult {
+  success: boolean;
+  syncedChain: number;
+  syncedClosings: number;
+  syncedSessions: number;
+  syncedEvents: number;
+  errors: string[];
+  timestamp: string;
+}
+
+export interface NF525SyncState {
+  lastSyncAt: string | null;
+  lastSyncResult: NF525SyncResult | null;
+  isSyncing: boolean;
+  chainSyncedUpTo: number;     // last sequentialNumber synced for chain
+  eventsSyncedUpTo: number;    // last sequentialNumber synced for events
+  closingsSyncedIds: string[]; // IDs of closings already synced
+  sessionsSyncedIds: string[]; // IDs of session closings already synced
+}
+
+export interface NF525BackendChainStatus {
+  counter: number;
+  grandTotal: number;
+  lastHash: string;
+  eventCount: number;
+  lastEventDigest: string;
+}
+
+export interface NF525BackendVerificationResult {
+  valid: boolean;
+  checkedCount: number;
+  errors: string[];
+}
+
+export interface NF525BackendAttestationDTO {
+  id: string;
+  generatedAt: string;
+  chainValid: boolean;
+  journalValid: boolean;
+  orderCount: number;
+  closingsCount: number;
+  eventCount: number;
+  grandTotal: number;
+  lastOrderHash: string;
+  lastEventDigest: string;
+  attestationDigest: string;
+  content: string;
+}

@@ -206,6 +206,12 @@ const PaymentModal = ({
         }
       } catch (e) { console.warn('NF525: journal ORDER_CREATED', e); }
 
+      // NF525 Phase 6 : background sync to backend
+      try {
+        const { nf525SyncService } = await import("@/services/nf525-sync.service");
+        nf525SyncService.syncAll().catch(() => {});
+      } catch (e) { console.warn('NF525: background sync', e); }
+
       // Mettre à jour la session avec le bon mode de paiement
       if (currentSession.id) {
         const sale = {
